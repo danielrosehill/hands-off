@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Hands Off
+GenericName=Toddler keyboard lock
+Comment=Freeze the keyboard and mouse with a hot-key
+Exec=handsoff
+Icon=handsoff
+Terminal=false
+Categories=Utility;System;
+Keywords=baby;toddler;child;lock;keyboard;mouse;

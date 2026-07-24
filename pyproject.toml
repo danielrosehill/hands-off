@@ -1,0 +1,22 @@
+[project]
+name = "handsoff"
+version = "0.1.0"
+description = "Toddler-proof keyboard & mouse lock for Linux"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Daniel Rosehill", email = "daniel@danielrosehill.co.il" }]
+dependencies = ["evdev>=1.6", "PyQt5>=5.15"]
+
+[project.scripts]
+handsoff = "handsoff.app:main"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["handsoff"]
+
+[tool.setuptools.package-data]
+handsoff = ["resources/*.svg"]
