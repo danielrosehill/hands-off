@@ -20,6 +20,10 @@ DEFAULTS = {
     "activation_mode": "combo",
     # The secret word the parent types to unlock.
     "unlock_word": "quit",
+    # Numeric-keypad PIN that toggles the lock on AND off (e.g. "4827").
+    # Only Num-pad digits count; any other key or a 3 s pause resets entry.
+    # Empty = disabled.
+    "toggle_code": "",
     "allow_unlock_word": True,
     "allow_unlock_tray": True,
     # Lock the mouse too, not just the keyboard. When True the tray icon can't

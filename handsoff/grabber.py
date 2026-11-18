@@ -9,6 +9,7 @@ to the Qt side through thread-safe signals.
 """
 import selectors
 import threading
+import time
 
 from evdev import InputDevice, ecodes, list_devices
 from PyQt5.QtCore import QObject, pyqtSignal
@@ -25,6 +26,10 @@ def _is_pointer(dev):
     return ecodes.BTN_LEFT in keys and ecodes.EV_REL in caps
 
 
+KP_DIGITS = {getattr(ecodes, "KEY_KP%d" % d): str(d) for d in range(10)}
+CODE_TIMEOUT = 3.0  # seconds allowed between PIN digits
+
+
 class Grabber(QObject):
     locked = pyqtSignal()
     unlocked = pyqtSignal()
@@ -38,6 +43,9 @@ class Grabber(QObject):
         self._held = set()          # activation keys currently down (combo mode)
         self._seq = []              # recent activation-key presses (sequence mode)
         self._buffer = []           # recent key-down scancodes (unlock word)
+        self._code_buf = ""         # recent Num-pad digits (toggle code)
+        self._code_last = 0.0
+        self._pending_toggle = None  # key whose release fires the toggle
         self._grabbed = []
         self._keyboards = []
         self._pointers = []
@@ -56,6 +64,9 @@ class Grabber(QObject):
             for c in word
             if ("KEY_" + c.upper()) in ecodes.ecodes
         ]
+        code = str(config.get("toggle_code") or "")
+        self._code = code if code.isdigit() else ""
+        self._code_buf = ""
 
     # --- lifecycle -----------------------------------------------------
     def start(self):
@@ -110,6 +121,15 @@ class Grabber(QObject):
 
     def _handle_key(self, event):
         # event.value: 0 = up, 1 = down, 2 = autorepeat
+        if self._pending_toggle is not None:
+            # Toggle on release of the last PIN digit, so the key-up reaches the
+            # compositor before/after the grab and no key is left "stuck".
+            if event.code == self._pending_toggle and event.value == 0:
+                self._pending_toggle = None
+                self.unlock() if self._is_locked else self.lock()
+            return
+        if self._detect_code(event):
+            return
         if self._is_locked:
             self._detect_unlock(event)
         else:
@@ -132,6 +152,25 @@ class Grabber(QObject):
             self._held.discard(event.code)
         if self._held >= self._activation:
             self.lock()
+
+    def _detect_code(self, event):
+        """Track the Num-pad toggle PIN. Returns True when it just matched."""
+        if not self._code or event.value != 1:
+            return False
+        digit = KP_DIGITS.get(event.code)
+        if digit is None:
+            self._code_buf = ""
+            return False
+        now = time.monotonic()
+        if now - self._code_last > CODE_TIMEOUT:
+            self._code_buf = ""
+        self._code_last = now
+        self._code_buf = (self._code_buf + digit)[-len(self._code):]
+        if self._code_buf == self._code:
+            self._code_buf = ""
+            self._pending_toggle = event.code
+            return True
+        return False
 
     def _detect_unlock(self, event):
         if not self.config["allow_unlock_word"] or event.value != 1:

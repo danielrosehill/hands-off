@@ -3,8 +3,8 @@ import signal
 import sys
 from pathlib import Path
 
-from PyQt5.QtCore import QTimer
-from PyQt5.QtGui import QIcon
+from PyQt5.QtCore import QRegExp, QTimer
+from PyQt5.QtGui import QIcon, QRegExpValidator
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -34,6 +34,9 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Hands Off — Settings")
         self.word = QLineEdit(config["unlock_word"])
+        self.code = QLineEdit(config.get("toggle_code", ""))
+        self.code.setValidator(QRegExpValidator(QRegExp(r"\d{0,8}")))
+        self.code.setPlaceholderText("e.g. 4827 (blank = off)")
         self.allow_word = QCheckBox("Unlock by typing the word")
         self.allow_word.setChecked(config["allow_unlock_word"])
         self.allow_tray = QCheckBox("Unlock by clicking the tray icon")
@@ -44,6 +47,7 @@ class SettingsDialog(QDialog):
         self.notify.setChecked(config["notifications"])
 
         form = QFormLayout()
+        form.addRow("Num-pad toggle code:", self.code)
         form.addRow("Unlock word:", self.word)
         form.addRow(self.allow_word)
         form.addRow(self.allow_tray)
@@ -61,6 +65,7 @@ class SettingsDialog(QDialog):
     def values(self):
         return {
             "unlock_word": self.word.text().strip() or "quit",
+            "toggle_code": self.code.text().strip() if len(self.code.text().strip()) >= 4 else "",
             "allow_unlock_word": self.allow_word.isChecked(),
             "allow_unlock_tray": self.allow_tray.isChecked(),
             "grab_mouse": self.grab_mouse.isChecked(),
@@ -137,6 +142,8 @@ class HandsOffApp:
         self.act_unlock.setEnabled(True)
         if self.config["notifications"]:
             hint = "type '%s'" % self.config["unlock_word"]
+            if self.config.get("toggle_code"):
+                hint = "enter your Num-pad code or " + hint
             if self.config["allow_unlock_tray"] and not self.config["grab_mouse"]:
                 hint += " or click the tray icon"
             what = "Keyboard & mouse" if self.config["grab_mouse"] else "Keyboard"
@@ -171,10 +178,11 @@ class HandsOffApp:
             None,
             "Hands Off",
             "Hands Off — toddler-proof keyboard & mouse lock.\n\n"
-            "Activate:  %s\n"
+            "Activate:  %s%s\n"
             "Unlock:    type '%s'%s"
             % (
                 keys,
+                "  or your Num-pad code (toggles)" if self.config.get("toggle_code") else "",
                 self.config["unlock_word"],
                 "  or click this icon" if self.config["allow_unlock_tray"] else "",
             ),

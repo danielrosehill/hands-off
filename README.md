@@ -20,7 +20,15 @@ while a lock is active.
   is grabbed, the word never leaks into any application. If the mouse isn't
   locked, you can also left-click the tray icon.
 
-Both unlock methods are toggleable in Settings — handy when an older child has
+- **Num-pad toggle code (optional):** set a 4–8 digit PIN in Settings and type it
+  on the **numeric keypad** to toggle the lock on *and* off. Only Num-pad digit
+  keys count — top-row digits, letters and your other shortcuts are ignored — and
+  any other key or a 3-second pause resets entry, so key-mashing practically never
+  hits it. The lock engages on *release* of the last digit, so no key is left
+  stuck. Trade-off: when you lock, the code's digits have already reached the
+  focused app (the keyboard isn't grabbed yet), so lock from somewhere harmless.
+
+All unlock methods are toggleable in Settings — handy when an older child has
 figured out the tray-click and you want to leave only the typed word.
 
 ## Settings
@@ -29,6 +37,7 @@ Right-click the tray icon → **Settings…** (stored in `~/.config/handsoff/con
 
 | Setting | Default | Notes |
 |---|---|---|
+| Num-pad toggle code | *(blank = off)* | 4–8 digits, Num-pad only, toggles lock on/off |
 | Unlock word | `quit` | Typed to release the lock |
 | Unlock by typing the word | on | |
 | Unlock by clicking the tray icon | on | Only usable when the mouse is *not* locked |
