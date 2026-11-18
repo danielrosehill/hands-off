@@ -32,3 +32,26 @@ jobs:
         with:
           files: dist/*.deb
           generate_release_notes: true
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build Windows zip
+        shell: pwsh
+        run: ./packaging/windows/build.ps1
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: handsoff-windows
+          path: dist/*.zip
+
+      - name: Attach zip to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip

@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
 )
 
 from .config import load_config, save_config
-from .grabber import Grabber
+from .grabber import make_grabber
 
 ICON_DIR = Path(__file__).parent / "resources"
 
@@ -32,11 +32,22 @@ APP_NAME = "Hands Off"
 
 
 def icon(name):
-    return QIcon(str(ICON_DIR / name))
+    # PNG twins avoid depending on Qt's SVG plugin (notably in the Windows build).
+    png = ICON_DIR / name.replace(".svg", ".png")
+    return QIcon(str(png if png.exists() else ICON_DIR / name))
 
 
 def play(clip):
-    """Play a bundled clip without blocking (pw-play, paplay or ffplay)."""
+    """Play a bundled clip without blocking.
+
+    Windows: the .wav twin via winsound. Linux: the .ogg via pw-play, paplay or ffplay.
+    """
+    if sys.platform == "win32":
+        import winsound
+        wav = SOUND_DIR / clip.replace(".ogg", ".wav")
+        if wav.exists():
+            winsound.PlaySound(str(wav), winsound.SND_FILENAME | winsound.SND_ASYNC)
+        return
     path = SOUND_DIR / clip
     if not path.exists():
         return
@@ -132,7 +143,7 @@ class HandsOffApp:
         self.app.setDesktopFileName("handsoff")
         self.app.setQuitOnLastWindowClosed(False)
 
-        self.grabber = Grabber(self.config)
+        self.grabber = make_grabber(self.config)
         self.grabber.locked.connect(self._on_locked)
         self.grabber.unlocked.connect(self._on_unlocked)
         self.grabber.error.connect(self._on_error)
@@ -153,6 +164,11 @@ class HandsOffApp:
         self._ticker.timeout.connect(lambda: None)
 
         self.grabber.start()
+        if not self.config.get("toggle_code"):
+            self.notifier.show(
+                "Hands Off is running",
+                "Right-click the tray icon \u2192 Settings to set your number-pad lock code.",
+                "handsoff.svg", 8000)
         return self.app.exec_()
 
     def _build_menu(self):

@@ -7,7 +7,10 @@ import json
 import os
 from pathlib import Path
 
-CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "handsoff"
+if os.name == "nt":
+    CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "HandsOff"
+else:
+    CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "handsoff"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
 DEFAULTS = {

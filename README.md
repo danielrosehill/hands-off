@@ -1,6 +1,6 @@
 # Hands Off
 
-**Toddler-proof keyboard & mouse lock for Linux.**
+**Toddler-proof keyboard & mouse lock for Linux and Windows.**
 
 A small child grabs the laptop and starts mashing keys and dragging the mouse
 into your open apps. Hands Off lets you *instantly freeze* the keyboard (and
@@ -64,6 +64,33 @@ two files.
 The .deb is plain `dpkg-deb` — no compilation, builds in a second locally with
 `./build-deb.sh`. Pushing a `v*` tag also builds it in GitHub Actions and
 attaches it to the release.
+
+## Install (Windows 10/11)
+
+Download `HandsOff-<version>-windows.zip` from the
+[latest release](https://github.com/danielrosehill/hands-off/releases/latest),
+extract it, then run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+No admin rights needed. It installs to `%LOCALAPPDATA%\Programs\HandsOff`, adds
+Start-menu and Startup shortcuts and starts the tray app. Settings live in
+`%APPDATA%\HandsOff\config.json`. Remove with `uninstall.ps1`.
+
+How the Windows build works and its limits:
+
+- Low-level keyboard/mouse hooks (`WH_KEYBOARD_LL`, `WH_MOUSE_LL`) swallow input
+  while locked (`handsoff/winhook.py`). Keys are matched by hardware scan code,
+  so the Num-pad code works whether NumLock is on or off.
+- Windows never lets an app block **Ctrl+Alt+Del** or **Win+L**, and a normal
+  (non-elevated) app can't block input going to an *elevated* window that has
+  focus (e.g. an admin prompt).
+- Synthetic input (remote-desktop tools, automation) is deliberately not
+  blocked, so a remote session can still unlock.
+- Built with PyInstaller by `packaging/windows/build.ps1` (also run in GitHub
+  Actions on every `v*` tag).
 
 ## Install (Debian / Ubuntu / KDE)
 

@@ -1,33 +1,33 @@
-"""Kernel-level input grabbing via evdev.
+"""Input locking: shared key logic plus per-platform backends.
 
-Grabbing a device with ``EVIOCGRAB`` gives Hands Off *exclusive* access to it,
-so no other application receives its events while a lock is active. This happens
-below the display server, so it works identically under X11 and Wayland.
+``Grabber`` holds the platform-neutral logic (activation combo, Num-pad toggle
+code, unlock word) and Qt signals. Backends only deliver key events and
+block/unblock input:
 
-The grabber runs its read loop in a background thread and reports state changes
-to the Qt side through thread-safe signals.
+* ``EvdevGrabber`` (Linux) grabs devices with ``EVIOCGRAB`` below the display
+  server, so it works the same under X11 and Wayland.
+* ``WindowsGrabber`` (``winhook.py``) installs low-level keyboard/mouse hooks
+  and swallows events while locked.
+
+``make_grabber()`` picks the right one.
 """
-import selectors
-import threading
+import sys
 import time
 
-from evdev import InputDevice, ecodes, list_devices
 from PyQt5.QtCore import QObject, pyqtSignal
 
+from . import keycodes
+from .keycodes import KP_DIGITS
 
-def _is_keyboard(dev):
-    keys = dev.capabilities().get(ecodes.EV_KEY, [])
-    return ecodes.KEY_A in keys and ecodes.KEY_Z in keys
-
-
-def _is_pointer(dev):
-    caps = dev.capabilities()
-    keys = caps.get(ecodes.EV_KEY, [])
-    return ecodes.BTN_LEFT in keys and ecodes.EV_REL in caps
-
-
-KP_DIGITS = {getattr(ecodes, "KEY_KP%d" % d): str(d) for d in range(10)}
 CODE_TIMEOUT = 3.0  # seconds allowed between PIN digits
+
+
+class KeyEvent:
+    __slots__ = ("code", "value")
+
+    def __init__(self, code, value):
+        self.code = code    # keycodes value
+        self.value = value  # 0 = up, 1 = down, 2 = autorepeat
 
 
 class Grabber(QObject):
@@ -38,7 +38,6 @@ class Grabber(QObject):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self._running = False
         self._is_locked = False
         self._held = set()          # activation keys currently down (combo mode)
         self._seq = []              # recent activation-key presses (sequence mode)
@@ -46,78 +45,33 @@ class Grabber(QObject):
         self._code_buf = ""         # recent Num-pad digits (toggle code)
         self._code_last = 0.0
         self._pending_toggle = None  # key whose release fires the toggle
-        self._grabbed = []
-        self._keyboards = []
-        self._pointers = []
-        self._selector = selectors.DefaultSelector()
-        self._thread = None
         self.reload(config)
 
     def reload(self, config):
         """Recompute derived state after a config change (e.g. unlock word)."""
         self.config = config
-        self._activation = {getattr(ecodes, k) for k in config["activation_keys"]}
-        self._activation_order = [getattr(ecodes, k) for k in config["activation_keys"]]
+        names = config["activation_keys"]
+        self._activation_order = [keycodes.code(k) for k in names if keycodes.code(k) is not None]
+        self._activation = set(self._activation_order)
         word = config["unlock_word"].lower()
-        self._target = [
-            ecodes.ecodes["KEY_" + c.upper()]
-            for c in word
-            if ("KEY_" + c.upper()) in ecodes.ecodes
-        ]
+        self._target = [keycodes.code("KEY_" + c.upper()) for c in word
+                        if keycodes.code("KEY_" + c.upper()) is not None]
         code = str(config.get("toggle_code") or "")
         self._code = code if code.isdigit() else ""
         self._code_buf = ""
 
-    # --- lifecycle -----------------------------------------------------
+    # --- backend hooks ------------------------------------------------
     def start(self):
-        try:
-            self._open_devices()
-        except PermissionError:
-            self.error.emit(
-                "No permission to read input devices.\n\n"
-                "Add your user to the 'input' group:\n"
-                "    sudo usermod -aG input $USER\n\n"
-                "then log out and back in."
-            )
-            return False
-        if not self._keyboards:
-            self.error.emit("No accessible keyboard devices were found.")
-            return False
-        self._running = True
-        self._thread = threading.Thread(target=self._loop, daemon=True)
-        self._thread.start()
-        return True
+        raise NotImplementedError
 
     def stop(self):
-        self._running = False
-        self._ungrab()
+        pass
 
-    def _open_devices(self):
-        for path in list_devices():
-            try:
-                dev = InputDevice(path)
-            except OSError:
-                continue
-            if _is_keyboard(dev):
-                self._keyboards.append(dev)
-            elif _is_pointer(dev):
-                self._pointers.append(dev)
-            else:
-                dev.close()
-        for dev in self._keyboards + self._pointers:
-            self._selector.register(dev, selectors.EVENT_READ)
+    def _block(self):
+        """Start blocking input (called on lock)."""
 
-    # --- main loop -----------------------------------------------------
-    def _loop(self):
-        while self._running:
-            for key, _ in self._selector.select(timeout=0.5):
-                dev = key.fileobj
-                try:
-                    for event in dev.read():
-                        if event.type == ecodes.EV_KEY:
-                            self._handle_key(event)
-                except OSError:
-                    pass
+    def _unblock(self):
+        """Stop blocking input (called on unlock)."""
 
     def _handle_key(self, event):
         # event.value: 0 = up, 1 = down, 2 = autorepeat
@@ -184,15 +138,7 @@ class Grabber(QObject):
     def lock(self):
         if self._is_locked:
             return
-        targets = list(self._keyboards)
-        if self.config["grab_mouse"]:
-            targets += self._pointers
-        for dev in targets:
-            try:
-                dev.grab()
-                self._grabbed.append(dev)
-            except OSError:
-                pass
+        self._block()
         self._is_locked = True
         self._held.clear()
         self._seq.clear()
@@ -202,20 +148,20 @@ class Grabber(QObject):
     def unlock(self):
         if not self._is_locked:
             return
-        self._ungrab()
+        self._unblock()
         self._is_locked = False
         self._held.clear()
         self._seq.clear()
         self.unlocked.emit()
 
-    def _ungrab(self):
-        for dev in self._grabbed:
-            try:
-                dev.ungrab()
-            except OSError:
-                pass
-        self._grabbed = []
-
     @property
     def is_locked(self):
         return self._is_locked
+
+
+def make_grabber(config):
+    if sys.platform == "win32":
+        from .winhook import WindowsGrabber
+        return WindowsGrabber(config)
+    from .evdev_backend import EvdevGrabber
+    return EvdevGrabber(config)
