@@ -1,5 +1,7 @@
 """Qt system-tray front end for Hands Off."""
+import shutil
 import signal
+import subprocess
 import sys
 from pathlib import Path
 
@@ -25,8 +27,52 @@ from .grabber import Grabber
 ICON_DIR = Path(__file__).parent / "resources"
 
 
+SOUND_DIR = ICON_DIR / "sounds"
+APP_NAME = "Hands Off"
+
+
 def icon(name):
     return QIcon(str(ICON_DIR / name))
+
+
+def play(clip):
+    """Play a bundled clip without blocking (pw-play, paplay or ffplay)."""
+    path = SOUND_DIR / clip
+    if not path.exists():
+        return
+    for cmd in (["pw-play"], ["paplay"], ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet"]):
+        if shutil.which(cmd[0]):
+            subprocess.Popen(cmd + [str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+
+
+class Notifier:
+    """Desktop notifications via notify-send, named "Hands Off" with its own icon.
+
+    Qt's QSystemTrayIcon.showMessage reports the interpreter (python3) as the
+    sender on Plasma, so we go through libnotify instead and fall back to Qt.
+    Each new notification replaces the previous one rather than stacking.
+    """
+
+    def __init__(self, tray):
+        self.tray = tray
+        self.last_id = None
+        self.has_cli = bool(shutil.which("notify-send"))
+
+    def show(self, title, body, icon_file, timeout_ms):
+        if not self.has_cli:
+            self.tray.showMessage(title, body, icon(icon_file), timeout_ms)
+            return
+        cmd = ["notify-send", "--app-name", APP_NAME, "--icon", str(ICON_DIR / icon_file),
+               "--expire-time", str(timeout_ms), "--hint", "string:desktop-entry:handsoff",
+               "--transient", "--print-id"]
+        if self.last_id:
+            cmd += ["--replace-id", self.last_id]
+        try:
+            out = subprocess.run(cmd + [title, body], capture_output=True, text=True, timeout=3)
+            self.last_id = out.stdout.strip() or None
+        except (OSError, subprocess.SubprocessError):
+            self.tray.showMessage(title, body, icon(icon_file), timeout_ms)
 
 
 class SettingsDialog(QDialog):
@@ -45,6 +91,8 @@ class SettingsDialog(QDialog):
         self.grab_mouse.setChecked(config["grab_mouse"])
         self.notify = QCheckBox("Show notifications")
         self.notify.setChecked(config["notifications"])
+        self.sounds = QCheckBox("Play voice announcements")
+        self.sounds.setChecked(config.get("sounds", True))
 
         form = QFormLayout()
         form.addRow("Num-pad toggle code:", self.code)
@@ -53,6 +101,7 @@ class SettingsDialog(QDialog):
         form.addRow(self.allow_tray)
         form.addRow(self.grab_mouse)
         form.addRow(self.notify)
+        form.addRow(self.sounds)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -70,6 +119,7 @@ class SettingsDialog(QDialog):
             "allow_unlock_tray": self.allow_tray.isChecked(),
             "grab_mouse": self.grab_mouse.isChecked(),
             "notifications": self.notify.isChecked(),
+            "sounds": self.sounds.isChecked(),
         }
 
 
@@ -77,6 +127,9 @@ class HandsOffApp:
     def __init__(self):
         self.config = load_config()
         self.app = QApplication(sys.argv)
+        self.app.setApplicationName("handsoff")
+        self.app.setApplicationDisplayName(APP_NAME)
+        self.app.setDesktopFileName("handsoff")
         self.app.setQuitOnLastWindowClosed(False)
 
         self.grabber = Grabber(self.config)
@@ -89,6 +142,7 @@ class HandsOffApp:
         self.tray.activated.connect(self._on_tray_activated)
         self._build_menu()
         self.tray.show()
+        self.notifier = Notifier(self.tray)
 
     # --- run -----------------------------------------------------------
     def run(self):
@@ -140,27 +194,31 @@ class HandsOffApp:
         self.tray.setToolTip("Hands Off — LOCKED")
         self.act_lock.setEnabled(False)
         self.act_unlock.setEnabled(True)
+        if self.config.get("sounds", True):
+            play("locked.ogg")
         if self.config["notifications"]:
-            hint = "type '%s'" % self.config["unlock_word"]
+            ways = []
             if self.config.get("toggle_code"):
-                hint = "enter your Num-pad code or " + hint
+                ways.append("enter your code on the number pad")
+            if self.config["allow_unlock_word"]:
+                ways.append("type \u201c%s\u201d" % self.config["unlock_word"])
             if self.config["allow_unlock_tray"] and not self.config["grab_mouse"]:
-                hint += " or click the tray icon"
-            what = "Keyboard & mouse" if self.config["grab_mouse"] else "Keyboard"
-            self.tray.showMessage(
-                "Hands Off ON",
-                "%s locked — %s to unlock." % (what, hint),
-                icon("handsoff-locked.svg"),
-                5000,
-            )
+                ways.append("click the tray icon")
+            what = "Keyboard and mouse" if self.config["grab_mouse"] else "Keyboard"
+            body = "%s locked." % what
+            if ways:
+                body += "\nTo unlock, " + " or ".join(ways) + "."
+            self.notifier.show("\U0001F512  Locked", body, "handsoff-locked.svg", 5000)
 
     def _on_unlocked(self):
         self.tray.setIcon(icon("handsoff.svg"))
         self.tray.setToolTip("Hands Off — ready")
         self.act_lock.setEnabled(True)
         self.act_unlock.setEnabled(False)
+        if self.config.get("sounds", True):
+            play("unlocked.ogg")
         if self.config["notifications"]:
-            self.tray.showMessage("Hands Off OFF", "Input unlocked.", icon("handsoff.svg"), 3000)
+            self.notifier.show("\U0001F513  Unlocked", "Keyboard and mouse are back to normal.", "handsoff.svg", 3000)
 
     def _on_error(self, msg):
         QMessageBox.warning(None, "Hands Off", msg)

@@ -45,6 +45,7 @@ Section: utils
 Priority: optional
 Architecture: ${ARCH}
 Depends: python3, python3-evdev, python3-pyqt5, python3-pyqt5.qtsvg
+Recommends: libnotify-bin, pipewire-bin | pulseaudio-utils
 Maintainer: Daniel Rosehill <daniel@danielrosehill.co.il>
 Description: Toddler-proof keyboard & mouse lock
  Instantly freeze the keyboard and mouse with a hot-key so a small child can

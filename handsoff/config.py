@@ -30,6 +30,8 @@ DEFAULTS = {
     # be clicked while locked, so use the unlock word instead.
     "grab_mouse": True,
     "notifications": True,
+    # Spoken announcements on lock/unlock (bundled clips, Herman Poppleberry voice).
+    "sounds": True,
 }
 
 

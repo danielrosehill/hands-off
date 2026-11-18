@@ -42,10 +42,28 @@ Right-click the tray icon → **Settings…** (stored in `~/.config/handsoff/con
 | Unlock by typing the word | on | |
 | Unlock by clicking the tray icon | on | Only usable when the mouse is *not* locked |
 | Also lock the mouse | on | Full lockdown; use the typed word to unlock |
-| Show notifications | on | |
+| Show notifications | on | Desktop notifications named "Hands Off" (via `notify-send`) |
+| Play voice announcements | on | Spoken "Lock enabled" / "Unlocked" clips |
 
 Activation keys and combo/sequence mode are configurable in the JSON file
 (`activation_keys`, `activation_mode`).
+
+## Voice announcements
+
+`handsoff/resources/sounds/locked.ogg` and `unlocked.ogg` are spoken by Herman
+Poppleberry, a cast voice from the *My Weird Prompts* podcast, rendered on
+2026-11-18 with the MWP OmniVoice adapter set `v3` (same pipeline as
+[MWP-Announcer](https://github.com/My-Weird-Prompts/MWP-Announcer),
+`scripts/render_voices.py`). Ogg Opus, 48 kHz mono, loudnorm −16 LUFS. Lines:
+"Hands Off. Lock enabled." / "Hands Off. Unlocked." Played with `pw-play`,
+falling back to `paplay` or `ffplay`. Swap in your own clips by replacing the
+two files.
+
+## Building
+
+The .deb is plain `dpkg-deb` — no compilation, builds in a second locally with
+`./build-deb.sh`. Pushing a `v*` tag also builds it in GitHub Actions and
+attaches it to the release.
 
 ## Install (Debian / Ubuntu / KDE)
 
